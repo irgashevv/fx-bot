@@ -9,7 +9,7 @@ from db.models import User, Request
 from keyboards.reply import main_kb
 from keyboards.inline import get_my_requests_kb
 from config import GROUP_ID
-from .request_handlers import create_request_start
+from .request_handlers import start_creation
 from utils.dashboard_updater import update_dashboard, get_dashboard_kb
 
 router = Router()
@@ -91,7 +91,7 @@ async def my_active_requests(message: types.Message):
 
 @router.message(F.text == "➕ Создать заявку")
 async def handle_create_request(message: types.Message, state: FSMContext):
-    await create_request_start(message, state)
+    await start_creation(message, state)
 
 
 @router.message(F.text == "📋 Актуальные заявки")

@@ -13,12 +13,12 @@ async def main():
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher()
 
+    await create_tables()
+
     dp.include_router(user_commands.router)
     dp.include_router(request_handlers.fsm_router)
 
     print("Starting bot...")
-
-    await create_tables()
 
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)

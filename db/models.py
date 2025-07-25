@@ -21,7 +21,7 @@ class Request(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey('users.telegram_id'))
     user: Mapped["User"] = relationship()
-    request_type: Mapped[str] = mapped_column(String(4), nullable=False)
+    request_type: Mapped[str] = mapped_column(String(10), nullable=False)
     currency_from: Mapped[str] = mapped_column(String(50), nullable=False)
     amount_from: Mapped[float] = mapped_column(DECIMAL(10, 2), nullable=False)
     currency_to: Mapped[str] = mapped_column(String(50), nullable=False)
