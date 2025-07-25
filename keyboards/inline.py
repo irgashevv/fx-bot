@@ -18,23 +18,21 @@ def get_confirm_kb():
     return builder.as_markup()
 
 
-def get_currency_kb(exclude_callback=None):
-    currencies = {
-        "USD Наличные (Душанбе)": "cur_USD_CASH_DYU",
-        "USD Наличные (Ташкент)": "cur_USD_CASH_TAS",
-        "USD Электронные (Душанбе)": "cur_USD_CARD_DYU",
-        "USD Электронные (Ташкент)": "cur_USD_CARD_TAS",
-        "TJS": "cur_TJS_CARD",
-        "UZS": "cur_UZS_CARD",
-    }
-
+def get_currency_kb(exclude_currency=None):
+    currencies = ["USD", "TJS", "UZS", "RUB"]
     builder = InlineKeyboardBuilder()
-    for text, callback_data in currencies.items():
-        if callback_data != exclude_callback:
-            builder.add(InlineKeyboardButton(text=text, callback_data=callback_data))
+    for cur in currencies:
+        if cur != exclude_currency:
+            builder.add(InlineKeyboardButton(text=cur, callback_data=f"cur_{cur}"))
+    builder.adjust(2)
+    return builder.as_markup()
 
-    builder.adjust(1)
 
+def get_currency_type_kb():
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="💵 Наличные", callback_data="cur_type_CASH"),
+        InlineKeyboardButton(text="💳 Электронные", callback_data="cur_type_ELEC"))
     return builder.as_markup()
 
 
@@ -42,11 +40,9 @@ def get_my_requests_kb(requests):
     builder = InlineKeyboardBuilder()
     if not requests:
         return builder.as_markup()
-
     for req in requests:
         builder.row(
             InlineKeyboardButton(
                 text=f"❌ Закрыть заявку #{req.id}",
                 callback_data=f"close_req_{req.id}"))
-
     return builder.as_markup()
