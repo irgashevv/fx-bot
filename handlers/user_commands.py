@@ -110,53 +110,60 @@ async def close_request(callback: types.CallbackQuery, bot: Bot):
 
     request_to_close = None
 
+    # Блок 1: Работа с базой данных
     async with async_session_factory() as session:
         result = await session.execute(
             select(Request)
             .where(Request.id == request_id)
-            .options(selectinload(Request.user)))
+            .options(selectinload(Request.user))
+        )
         request_to_close = result.scalar_one_or_none()
 
         if not request_to_close or request_to_close.user_id != callback.from_user.id:
-            await callback.answer("Это не ваша заявка или она не найдена.", show_alert=True)
-            return
+            return await callback.answer("Это не ваша заявка или она не найдена.", show_alert=True)
 
         if request_to_close.status == 'CLOSED':
-            await callback.answer("Эта заявка уже закрыта.", show_alert=True)
-            return
+            await callback.message.delete()  # Удаляем кнопки, если заявка уже закрыта
+            return await callback.answer("Эта заявка уже закрыта.", show_alert=True)
 
         request_to_close.status = 'CLOSED'
         await session.commit()
 
     if request_to_close and request_to_close.group_message_id:
         try:
+            original_message = await bot.get_chat_member(GROUP_ID, bot.id)
+
             req = request_to_close
-            req_type_text = 'Покупка' if req.request_type == 'BUY' else 'Продажа'
-            preview_line_1 = f"<b>Хочу купить:</b> <code>{req.amount_from} {req.currency_to}</code>" if req.request_type == 'BUY' else f"<b>Продаю:</b> <code>{req.amount_from} {req.currency_from}</code>"
-            preview_line_2 = f"<b>В обмен на:</b> <code>{req.currency_from}</code>" if req.request_type == 'BUY' else f"<b>Хочу получить:</b> <code>{req.currency_to}</code>"
-            username = f"@{req.user.username}" if req.user.username else req.user.first_name
+            author_mention = f"@{req.user.username}" if req.user.username else req.user.first_name
+            comment_text = f"\n<b>Комментарий:</b> {req.comment}" if req.comment else ""
 
-            original_text = (
-                f"<b>НОВАЯ ЗАЯВКА #{req.id}</b>\n\n"
-                f"<b>Тип:</b> {req_type_text}\n"
-                f"{preview_line_1}\n"
-                f"{preview_line_2}\n"
-                f"<b>Комментарий:</b> {req.comment or 'Нет'}\n\n"
-                f"<b>Автор:</b> {username}")
+            if req.request_type == 'EXCHANGE':
+                flow_name_for_msg = "обмен валюты"
+                action_text = f"обменять <b>{req.amount_from} {req.currency_from}</b> на <b>{req.currency_to}</b>"
+            else:
+                from_clean = req.currency_from.replace('"', '')
+                to_clean = req.currency_to.replace('"', '')
+                flow_name_for_msg = "перевод денег"
+                action_text = f"перевести <b>{req.amount_from}</b> из <b>{from_clean}</b> в <b>{to_clean}</b>"
 
-            final_text = original_text + "\n\n<b>--- СДЕЛКА ЗАВЕРШЕНА ---</b>"
+            original_body = (f"👤 {author_mention} хочет {action_text}.{comment_text}")
+
+            final_text = (
+                f"<s><b>Новая заявка на {flow_name_for_msg}</b>\n\n"
+                f"{original_body}</s>\n\n"
+                f"<b>--- СДЕЛКА ЗАВЕРШЕНА ---</b>")
 
             await bot.edit_message_text(
                 text=final_text,
                 chat_id=GROUP_ID,
                 message_id=request_to_close.group_message_id,
-                parse_mode="HTML",
-                reply_markup=None)
-            await update_dashboard(bot)
+                parse_mode="HTML")
         except Exception as e:
-            print(f"Could not edit message in group for request #{request_id}: {e}")
+            print(f"Could not edit group message for closed request #{request_id}: {e}")
 
-    await callback.message.edit_text(f"✅ Заявка #{request_id} успешно закрыта.")
+    await update_dashboard(bot)
+    await callback.message.delete()
+    await callback.message.answer(f"✅ Заявка #{request_id} успешно закрыта.")
     await callback.answer()
 
 

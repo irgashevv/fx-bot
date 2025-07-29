@@ -12,17 +12,28 @@ from config import GROUP_ID
 from utils.dashboard_updater import update_dashboard
 
 fsm_router = Router()
+LOCATIONS = {
+    'dushanbe': 'Душанбе',
+    'tashkent': 'Ташкент',
+    'moscow': 'Москва'
+}
+MONEY_TYPES = {
+    'cash': 'наличные',
+    'online': 'электронные'
+}
 
 
-# --- Вспомогательная функция для сборки описаний ---
 def build_description(data, prefix):
     currency = data.get(f'{prefix}_currency')
-    money_type = "Наличные" if data.get(f'{prefix}_type') == 'cash' else "Электронные"
-    location = "Душанбе" if data.get(f'{prefix}_location') == 'dushanbe' else "Ташкент"
-    return f"{currency} {money_type} ({location})"
 
+    money_type_key = data.get(f'{prefix}_type')
+    money_type_text = MONEY_TYPES.get(money_type_key, money_type_key)
 
-# === НАЧАЛО ДИАЛОГА ===
+    location_key = data.get(f'{prefix}_location')
+    location_text = LOCATIONS.get(location_key, location_key.capitalize() if location_key else "")
+
+    return f"{currency} {money_type_text} ({location_text})"
+
 
 @fsm_router.message(Command("create"))
 async def start_creation(message: types.Message, state: FSMContext):
@@ -40,8 +51,6 @@ async def process_flow_type(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(CreateRequest.from_currency)
     await callback.answer()
 
-
-# === СЕКЦИЯ "ОТДАЮ" ===
 
 @fsm_router.callback_query(F.data.startswith("cur_"), CreateRequest.from_currency)
 async def process_from_currency(callback: types.CallbackQuery, state: FSMContext):
@@ -78,21 +87,18 @@ async def process_from_location(callback: types.CallbackQuery, state: FSMContext
         result = await session.execute(query)
         amounts = [int(a) for a in result.scalars().all()]
 
-    # Если в базе нет истории, используем дефолтные значения
     if not amounts:
         amounts = [1000, 2000, 5000, 10000]
 
     amount_kb = get_amount_kb(amounts)
     await callback.message.answer(
         "Введите сумму или выберите из предложенных вариантов:",
-        reply_markup=amount_kb
-    )
+        reply_markup=amount_kb)
 
     await state.set_state(CreateRequest.from_amount)
     await callback.answer()
 
 
-# Обработчик для кнопок с суммами (ИНЛАЙН)
 @fsm_router.callback_query(F.data.startswith("amount_"), CreateRequest.from_amount)
 async def process_from_amount_button(callback: types.CallbackQuery, state: FSMContext):
     amount = float(callback.data.split('_')[1])
@@ -109,7 +115,6 @@ async def process_from_amount_button(callback: types.CallbackQuery, state: FSMCo
     await callback.answer()
 
 
-# Обработчик для ручного ввода суммы
 @fsm_router.message(CreateRequest.from_amount)
 async def process_from_amount_manual(message: types.Message, state: FSMContext):
     if not message.text.isdigit():
@@ -125,8 +130,6 @@ async def process_from_amount_manual(message: types.Message, state: FSMContext):
         await message.answer("Тип денег для получения:", reply_markup=get_money_type_kb())
         await state.set_state(CreateRequest.to_type)
 
-
-# === СЕКЦИЯ "ПОЛУЧАЮ" ===
 
 @fsm_router.callback_query(F.data.startswith("cur_"), CreateRequest.to_currency)
 async def process_to_currency_exchange(callback: types.CallbackQuery, state: FSMContext):
@@ -149,8 +152,6 @@ async def process_to_type(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-# === ФИНАЛЬНЫЕ ШАГИ ===
-
 @fsm_router.callback_query(F.data.startswith("loc_"), CreateRequest.to_location)
 async def process_to_location_and_prepare_confirm(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(to_location=callback.data.split('_')[1])
@@ -172,7 +173,7 @@ async def process_comment_and_show_preview(message: types.Message, state: FSMCon
         to_desc = build_description(data, 'to')
         line1 = f"<b>Отдаю:</b> <code>{amount} {from_desc}</code>"
         line2 = f"<b>Получаю:</b> <code>{to_desc}</code>"
-    else:  # transfer
+    else:
         flow_name = "Перевод денег"
         data['to_currency'] = data['from_currency']
         to_desc = build_description(data, 'to')
@@ -192,14 +193,22 @@ async def process_comment_and_show_preview(message: types.Message, state: FSMCon
 @fsm_router.callback_query(F.data == "req_confirm", CreateRequest.confirm)
 async def process_final_confirm(callback: types.CallbackQuery, state: FSMContext, bot: Bot):
     data = await state.get_data()
+    user = callback.from_user
 
     from_desc = build_description(data, 'from')
-    to_desc = build_description(data, 'to')
+
+    if data['flow_type'] == 'exchange':
+        flow_name_for_db = "EXCHANGE"
+        to_desc = build_description(data, 'to')
+    else:
+        flow_name_for_db = "TRANSFER"
+        data['to_currency'] = data['from_currency']  # Валюта та же
+        to_desc = build_description(data, 'to')
 
     async with async_session_factory() as session:
         new_request = Request(
-            user_id=callback.from_user.id,
-            request_type=data['flow_type'].upper(),
+            user_id=user.id,
+            request_type=flow_name_for_db,
             currency_from=from_desc,
             amount_from=data['from_amount'],
             currency_to=to_desc,
@@ -208,8 +217,31 @@ async def process_final_confirm(callback: types.CallbackQuery, state: FSMContext
         await session.commit()
         request_id = new_request.id
 
-    group_text = callback.message.text.replace("Проверьте вашу заявку:", f"<b>НОВАЯ ЗАЯВКА #{request_id}</b>")
-    group_text += f"\n\n<b>Автор:</b> @{callback.from_user.username or callback.from_user.first_name}"
+    author_mention = f"@{user.username}" if user.username else user.first_name
+    comment_text = f"\n<b>Комментарий:</b> {data['comment']}" if data.get('comment') else ""
+
+    if data['flow_type'] == 'exchange':
+        flow_name_for_msg = "Обмен Валюты"
+        action_text = f"обменять <b>{data['from_amount']} {from_desc}</b> на <b>{to_desc}</b>"
+    else:
+        flow_name_for_msg = "Перевод Денег"
+        from_type = data['from_type']
+        to_type = data['to_type']
+        from_location = data['from_location']
+        to_location = data['to_location']
+
+        from_type_text = MONEY_TYPES.get(from_type, from_type)
+        to_type_text = MONEY_TYPES.get(to_type, to_type)
+        from_location_text = LOCATIONS.get(from_location, from_location.capitalize())
+        to_location_text = LOCATIONS.get(to_location, to_location.capitalize())
+
+        action_text = (
+            f"отправить <b>{data['from_amount']} {data['from_currency']}</b> ({from_type_text}) из г. {from_location_text} "
+            f"и получить их как {to_type_text} в г. {to_location_text}")
+
+    group_text = (
+        f"<b>Новая заявка на {flow_name_for_msg}</b>\n\n"
+        f"👤 {author_mention} хочет {action_text}.{comment_text}")
 
     try:
         sent_message = await bot.send_message(chat_id=GROUP_ID, text=group_text, parse_mode="HTML")

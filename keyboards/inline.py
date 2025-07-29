@@ -39,6 +39,7 @@ def get_location_kb():
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="Душанбе 🇹🇯", callback_data="loc_dushanbe"))
     builder.add(InlineKeyboardButton(text="Ташкент 🇺🇿", callback_data="loc_tashkent"))
+    builder.add(InlineKeyboardButton(text="Москва 🇷🇺", callback_data="loc_moscow"))
     return builder.as_markup()
 
 
