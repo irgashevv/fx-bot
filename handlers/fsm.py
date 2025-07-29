@@ -20,3 +20,8 @@ class CurrencyConverter(StatesGroup):
     from_currency = State()
     to_currency = State()
     amount = State()
+
+
+class AdminBroadcast(StatesGroup):
+    message_text = State()
+    confirm = State()

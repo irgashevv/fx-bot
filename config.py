@@ -14,3 +14,4 @@ DB_NAME = os.getenv("DB_NAME")
 
 DATABASE_URL = f"postgresql+asyncpg://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 DASHBOARD_MESSAGE_ID = os.getenv("DASHBOARD_MESSAGE_ID")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
