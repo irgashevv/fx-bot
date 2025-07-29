@@ -4,7 +4,7 @@ from aiogram import Bot, Dispatcher
 
 from config import BOT_TOKEN
 from db.database import create_tables
-from handlers import user_commands, request_handlers
+from handlers import user_commands, request_handlers, converter_handlers
 
 logging.basicConfig(level=logging.INFO)
 
@@ -17,6 +17,7 @@ async def main():
 
     dp.include_router(user_commands.router)
     dp.include_router(request_handlers.fsm_router)
+    dp.include_router(converter_handlers.converter_router)
 
     print("Starting bot...")
 

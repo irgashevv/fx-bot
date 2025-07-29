@@ -4,6 +4,7 @@ main_kb = ReplyKeyboardMarkup(
     keyboard=[
         [
             KeyboardButton(text="➕ Создать заявку"),
+            KeyboardButton(text="💱 Курсы валют"),
         ],
         [
             KeyboardButton(text="📋 Актуальные заявки"),

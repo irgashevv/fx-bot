@@ -65,3 +65,33 @@ def get_amount_kb(amounts):
         builder.adjust(4)
 
     return builder.as_markup()
+
+
+def get_converter_currency_kb(exclude_callback=None):
+    api_currencies = {
+        "🇹🇯 TJS": "cur_TJS",
+        "🇺🇸 USD": "cur_USD",
+        "🇺🇿 UZS": "cur_UZS",
+        "🇷🇺 RUB": "cur_RUB",
+    }
+    builder = InlineKeyboardBuilder()
+    for text, callback_data in api_currencies.items():
+        if callback_data != exclude_callback:
+            builder.add(InlineKeyboardButton(text=text, callback_data=callback_data))
+    builder.adjust(2)
+    return builder.as_markup()
+
+
+def get_converter_operation_kb():
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="Купить", callback_data="conv_op_BUY"),
+        InlineKeyboardButton(text="Продать", callback_data="conv_op_SELL"))
+    return builder.as_markup()
+
+
+def get_converter_menu_kb():
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="📊 Посмотреть все курсы", callback_data="conv_menu_show_all"))
+    builder.add(InlineKeyboardButton(text="🔢 Открыть конвертер", callback_data="conv_menu_open_converter"))
+    return builder.as_markup()
