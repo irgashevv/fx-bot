@@ -2,7 +2,6 @@ from aiogram.fsm.state import State, StatesGroup
 
 
 class CreateRequest(StatesGroup):
-    flow_type = State()
     operation_type = State()
 
     main_currency = State()

@@ -9,11 +9,14 @@ def get_confirm_kb():
 
 
 # 1. Выбор сценария: Обмен или Перевод
-def get_flow_type_kb():
+def get_main_operation_kb():
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="💱 Обмен валют", callback_data="flow_exchange"))
-    builder.add(InlineKeyboardButton(text="💸 Перевод денег", callback_data="flow_transfer"))
+    builder.row(
+        InlineKeyboardButton(text="💰 Купить", callback_data="op_buy"),
+        InlineKeyboardButton(text="💸 Продать", callback_data="op_sell"))
+    builder.row(InlineKeyboardButton(text="✈️ Перевести", callback_data="op_transfer"))
     return builder.as_markup()
+
 
 def get_operation_type_kb():
     builder = InlineKeyboardBuilder()
@@ -21,6 +24,7 @@ def get_operation_type_kb():
         InlineKeyboardButton(text="💰 Хочу КУПИТЬ", callback_data="op_buy"),
         InlineKeyboardButton(text="💸 Хочу ПРОДАТЬ", callback_data="op_sell"))
     return builder.as_markup()
+
 
 # 2. Выбор валюты
 def get_currency_kb(exclude_currency=None):
@@ -104,4 +108,10 @@ def get_converter_menu_kb():
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="📊 Посмотреть все курсы", callback_data="conv_menu_show_all"))
     builder.add(InlineKeyboardButton(text="🔢 Открыть конвертер", callback_data="conv_menu_open_converter"))
+    return builder.as_markup()
+
+
+def get_skip_comment_kb():
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="➡️ Пропустить", callback_data="skip_comment"))
     return builder.as_markup()
