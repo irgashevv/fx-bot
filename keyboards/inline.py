@@ -15,31 +15,40 @@ def get_flow_type_kb():
     builder.add(InlineKeyboardButton(text="💸 Перевод денег", callback_data="flow_transfer"))
     return builder.as_markup()
 
+def get_operation_type_kb():
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="💰 Хочу КУПИТЬ", callback_data="op_buy"),
+        InlineKeyboardButton(text="💸 Хочу ПРОДАТЬ", callback_data="op_sell"))
+    return builder.as_markup()
 
 # 2. Выбор валюты
-def get_currency_kb():
+def get_currency_kb(exclude_currency=None):
+    currencies = {"USD": "cur_USD", "TJS": "cur_TJS", "UZS": "cur_UZS", "RUB": "cur_RUB"}
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="USD 🇺🇸", callback_data="cur_USD"))
-    builder.add(InlineKeyboardButton(text="TJS 🇹🇯", callback_data="cur_TJS"))
-    builder.add(InlineKeyboardButton(text="UZS 🇺🇿", callback_data="cur_UZS"))
-    builder.add(InlineKeyboardButton(text="RUB 🇷🇺", callback_data="cur_RUB"))
+    for text, callback_data in currencies.items():
+        if exclude_currency != callback_data.split('_')[1]:
+            builder.add(InlineKeyboardButton(text=text, callback_data=callback_data))
+    builder.adjust(4)
     return builder.as_markup()
 
 
 # 3. Выбор типа: Наличные или Электронные
 def get_money_type_kb():
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="💵 Наличные", callback_data="type_cash"))
-    builder.add(InlineKeyboardButton(text="💻 Электронные", callback_data="type_online"))
+    builder.row(InlineKeyboardButton(text="💵 Наличные", callback_data="type_cash"),
+                InlineKeyboardButton(text="💻 Электронные", callback_data="type_online"))
     return builder.as_markup()
 
 
 # 4. Выбор локации
 def get_location_kb():
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="Душанбе 🇹🇯", callback_data="loc_dushanbe"))
-    builder.add(InlineKeyboardButton(text="Ташкент 🇺🇿", callback_data="loc_tashkent"))
-    builder.add(InlineKeyboardButton(text="Москва 🇷🇺", callback_data="loc_moscow"))
+    builder.row(
+        InlineKeyboardButton(text="Душанбе 🇹🇯", callback_data="loc_dushanbe"),
+        InlineKeyboardButton(text="Ташкент 🇺🇿", callback_data="loc_tashkent"),
+        InlineKeyboardButton(text="Москва 🇷🇺", callback_data="loc_moscow"))
+    builder.adjust(3)
     return builder.as_markup()
 
 

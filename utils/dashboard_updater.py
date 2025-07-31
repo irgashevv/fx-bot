@@ -31,11 +31,12 @@ async def update_dashboard(bot: Bot):
         text = "<b>📊 Актуальные заявки:</b>\n\n"
         for req in requests:
             username = f"@{req.user.username}" if req.user.username else req.user.first_name
+            formatted_amount = format_number(req.amount_from) # <-- ФОРМАТИРУЕМ СУММУ
 
             if req.request_type == 'EXCHANGE':
-                line = f"<b>Обмен:</b> <code>{req.amount_from} {req.currency_from}</code> на <code>{req.currency_to}</code>"
+                line = f"<b>Обмен:</b> <code>{formatted_amount} {req.currency_from}</code> на <code>{req.currency_to}</code>"
             else:
-                line = f"<b>Перевод:</b> <code>{req.amount_from}</code> из <code>{req.currency_from}</code> в <code>{req.currency_to}</code>"
+                line = f"<b>Перевод:</b> <code>{formatted_amount}</code> из <code>{req.currency_from}</code> в <code>{req.currency_to}</code>"
 
             text += (
                 f"<b>#{req.id}</b> от {username}\n"
@@ -52,3 +53,8 @@ async def update_dashboard(bot: Bot):
             reply_markup=get_dashboard_kb())
     except Exception as e:
         print(f"Failed to update dashboard: {e}")
+
+def format_number(num):
+    if isinstance(num, (int, float)):
+        return f"{num:,.2f}".replace(".00", "")
+    return str(num)

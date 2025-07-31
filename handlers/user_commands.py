@@ -10,7 +10,7 @@ from keyboards.reply import main_kb
 from keyboards.inline import get_my_requests_kb
 from config import GROUP_ID
 from .request_handlers import start_creation
-from utils.dashboard_updater import update_dashboard, get_dashboard_kb
+from utils.dashboard_updater import update_dashboard, get_dashboard_kb, format_number
 
 router = Router()
 
@@ -52,9 +52,10 @@ async def list_active_requests(message: types.Message):
     for req in requests:
         req_type_text = 'Покупка' if req.request_type == 'BUY' else 'Продажа'
         username = f"@{req.user.username}" if req.user.username else req.user.first_name
+        formatted_amount = format_number(req.amount_from) # <-- ФОРМАТИРУЕМ
 
-        preview_line_1 = f"<b>Покупает:</b> <code>{req.amount_from} {req.currency_to}</code>" if req.request_type == 'BUY' else f"<b>Продает:</b> <code>{req.amount_from} {req.currency_from}</code>"
-        preview_line_2 = f"<b>В обмен на:</b> <code>{req.currency_from}</code>" if req.request_type == 'BUY' else f"<b>Хочет получить:</b> <code>{req.currency_to}</code>"
+        preview_line_1 = f"<b>Покупает:</b> <code>{formatted_amount} {req.currency_to}</code>" if req.request_type == 'BUY' else f"<b>Продает:</b> <code>{req.amount_from} {formatted_amount}</code>"
+        preview_line_2 = f"<b>В обмен на:</b> <code>{formatted_amount}</code>" if req.request_type == 'BUY' else f"<b>Хочет получить:</b> <code>{req.currency_to}</code>"
 
         text += (
             f"<b>Заявка #{req.id}</b> от {username}\n"
