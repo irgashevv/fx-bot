@@ -24,6 +24,7 @@ class Request(Base):
     request_type: Mapped[str] = mapped_column(String(10), nullable=False)
     currency_from: Mapped[str] = mapped_column(String(50), nullable=False)
     amount_from: Mapped[float] = mapped_column(DECIMAL(10, 2), nullable=False)
+    operation_type: Mapped[str] = mapped_column(String(10), nullable=True)
     currency_to: Mapped[str] = mapped_column(String(50), nullable=False)
     comment: Mapped[str] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(10), default='ACTIVE', nullable=False)

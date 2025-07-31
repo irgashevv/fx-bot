@@ -297,7 +297,8 @@ async def process_final_confirm(callback: types.CallbackQuery, state: FSMContext
     async with async_session_factory() as session:
         new_request = Request(
             user_id=user.id,
-            request_type=flow_type_for_db,  # Используем новую переменную
+            request_type=flow_type_for_db,
+            operation_type=data.get('operation_type'),
             currency_from=data['final_from'],
             amount_from=data['final_amount'],
             currency_to=data['final_to'],
@@ -328,7 +329,7 @@ async def process_final_confirm(callback: types.CallbackQuery, state: FSMContext
     # --- КОНЕЦ ИСПРАВЛЕНИЙ ---
 
     group_text = (
-        f"<b>Новая заявка #{request_id} на {flow_name_for_msg}</b>\n\n"
+        f"<b>Новая заявка на {flow_name_for_msg}</b>\n\n"
         f"👤 {author_mention} хочет {action_text}.{comment_text}")
 
     try:
