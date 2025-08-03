@@ -21,22 +21,12 @@ def get_dashboard_kb():
     ])
 
 
-# Вспомогательная функция, чтобы не дублировать код
-def parse_description(desc_str):
-    try:
-        parts = desc_str.replace('(', '').replace(')', '').split()
-        return {'currency': parts[0], 'type': parts[1], 'location': parts[2]}
-    except IndexError:
-        return {'currency': '', 'type': '', 'location': ''}
-
-
 async def update_dashboard(bot: Bot):
     async with async_session_factory() as session:
         query = (
             select(Request)
             .where(Request.status == 'ACTIVE')
             .options(selectinload(Request.user))
-            .order_by(Request.created_at.desc())
         )
         result = await session.execute(query)
         requests = result.scalars().all()
@@ -47,33 +37,11 @@ async def update_dashboard(bot: Bot):
         text_parts = ["<b>Актуальные заявки</b>"]
         for req in requests:
             author_mention = f"@{req.user.username}" if req.user.username else req.user.first_name
-            formatted_amount = format_number(req.amount_from)
 
-            op_type = req.operation_type
-            action_text = ""
-
-            # --- НАЧАЛО ИСПРАВЛЕНИЙ ---
-            if op_type == 'buy':
-                action = "хочет <b>КУПИТЬ</b>"
-                action_text = f"{formatted_amount} {req.currency_to} в обмен на {req.currency_from}"
-            elif op_type == 'sell':
-                action = "хочет <b>ПРОДАТЬ</b>"
-                action_text = f"{formatted_amount} {req.currency_from} в обмен на {req.currency_to}"
-            else:  # transfer
-                action = "хочет <b>ПЕРЕВЕСТИ</b>"
-                from_details = parse_description(req.currency_from)
-                to_details = parse_description(req.currency_to)
-
-                # Собираем фразу в правильном порядке
-                action_text = (f"<b>{formatted_amount} {from_details['currency']}</b> "
-                               f"из г. <b>{from_details['location']}</b> ({from_details['type'].lower()}) "
-                               f"в г. <b>{to_details['location']}</b> ({to_details['type'].lower()})")
-
-            line = f"— {author_mention} {action} {action_text}."
+            line = f"— {author_mention} {req.message_text}."
 
             if req.comment:
                 line += f"\n<i>Комментарий: {req.comment}</i>"
-            # --- КОНЕЦ ИСПРАВЛЕНИЙ ---
 
             text_parts.append(line)
 

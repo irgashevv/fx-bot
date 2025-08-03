@@ -1,336 +1,315 @@
 from aiogram import Router, F, types, Bot
-from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from sqlalchemy import update, select, func, desc
+from sqlalchemy import select, desc, func, update
+from config import GROUP_ID
 
-from .fsm import CreateRequest
-from keyboards.inline import (
-    get_main_operation_kb, get_currency_kb, get_money_type_kb,
-    get_location_kb, get_confirm_kb, get_amount_kb, get_skip_comment_kb
-)
 from db.database import async_session_factory
 from db.models import Request
-from config import GROUP_ID
+from handlers.fsm import CreateRequest
+from keyboards.inline import (
+    get_request_type_kb, get_constructor_amount_kb,
+    get_currency_from_kb, get_location_from_kb, get_location_to_kb,
+    get_money_type_from_kb, get_money_type_give_to_kb,
+    get_currency_to_kb, get_money_type_take_to_kb,
+    get_confirm_kb
+)
 from utils.dashboard_updater import update_dashboard, format_number
 
-fsm_router = Router()
+constructor_router = Router()
 
-# === Справочники ===
-LOCATIONS = {'dushanbe': 'Душанбе', 'tashkent': 'Ташкент', 'moscow': 'Москва'}
-MONEY_TYPES = {'cash': 'наличные', 'online': 'электронные'}
-
-
-def build_description(data, prefix, include_currency=True):
-    currency = data.get(f'{prefix}_currency', '')
-    money_type_key = data.get(f'{prefix}_money_type')
-    money_type_text = MONEY_TYPES.get(money_type_key, '')
-    location_key = data.get(f'{prefix}_location')
-    location_text = LOCATIONS.get(location_key, '')
-    parts = []
-    if include_currency and currency:
-        parts.append(currency)
-    if money_type_text:
-        parts.append(money_type_text)
-    if location_text:
-        parts.append(f"({location_text})")
-    return " ".join(parts)
+CURRENCY_SYMBOLS = {
+    'USD': '$',
+    'RUB': '₽',
+    'TJS': 'смн',
+    'UZS': 'сум'
+}
 
 
-# === ШАГ 1: НАЧАЛО ДИАЛОГА ===
-@fsm_router.message(Command("create"))
-async def start_creation(message: types.Message, state: FSMContext):
+@constructor_router.message(F.text == "➕ Создать заявку")
+async def start_request(message: types.Message, state: FSMContext):
     await state.clear()
-    await message.answer("Какую операцию вы хотите совершить?", reply_markup=get_main_operation_kb())
-    await state.set_state(CreateRequest.operation_type)
+    await message.answer("Выберите необходимое действие: ", reply_markup=get_request_type_kb())
+    await state.set_state(CreateRequest.request_type)
 
 
-# === ШАГ 2: ОБРАБОТКА ВЫБОРА ОПЕРАЦИИ ===
-@fsm_router.callback_query(F.data.startswith("op_"), CreateRequest.operation_type)
-async def process_operation_type(callback: types.CallbackQuery, state: FSMContext):
-    op_type = callback.data.split('_')[1]
-    await state.update_data(operation_type=op_type)
+@constructor_router.callback_query(F.data.startswith("request_type_"), CreateRequest.request_type)
+async def process_constructor_type(callback: types.CallbackQuery, state: FSMContext):
+    request_type_key = callback.data.split('_')[-1]
+    request_type_value = "Мне нужны " if request_type_key == 'take' else "Я отдам "
+    user_id = callback.from_user.id
 
-    op_map = {'buy': "Покупка", 'sell': "Продажа", 'transfer': "Перевод"}
-    action_map = {'buy': "купить", 'sell': "продать", 'transfer': "отправить"}
+    await state.update_data(request_type_key=request_type_key)
+    await state.update_data(request_type_value=request_type_value)
+    await state.update_data(message_text=request_type_value)
 
-    await callback.message.edit_text(f"Вы выбрали: {op_map[op_type]}")
-    await callback.message.answer(f"Какую валюту вы хотите {action_map[op_type]}?", reply_markup=get_currency_kb())
-    await state.set_state(CreateRequest.main_currency)
-    await callback.answer()
-
-
-# === ШАГ 3: ВВОД ДАННЫХ ОСНОВНОЙ ВАЛЮТЫ ===
-@fsm_router.callback_query(F.data.startswith("cur_"), CreateRequest.main_currency)
-async def process_main_currency(callback: types.CallbackQuery, state: FSMContext):
-    curr = callback.data.split('_')[1]
-    await state.update_data(main_currency=curr)
-    await callback.message.edit_text(f"Основная валюта: {curr}")
-
-    async with async_session_factory() as session:
-        subquery = select(Request.amount_from, func.max(Request.id).label('max_id')).group_by(
-            Request.amount_from).alias('subquery')
-        query = select(subquery.c.amount_from).order_by(desc(subquery.c.max_id)).limit(4)
+    async with (async_session_factory() as session):
+        subquery = select(Request.amount, func.max(Request.id).label('max_id')).where(
+            Request.user_id == user_id).group_by(
+            Request.amount).alias('subquery')
+        query = select(subquery.c.amount).order_by(desc(subquery.c.max_id)).limit(4)
         result = await session.execute(query)
         amounts = [int(a) for a in result.scalars().all()]
 
     if not amounts:
         amounts = [100, 500, 1000, 5000]
 
-    amount_kb = get_amount_kb(amounts)
-    await callback.message.answer("Введите сумму или выберите из популярных вариантов:", reply_markup=amount_kb)
-    await state.set_state(CreateRequest.main_amount)
+    amount_kb = get_constructor_amount_kb(amounts)
+    await callback.message.edit_text("Введите сумму или выберите из популярных вариантов:", reply_markup=amount_kb)
+
+    await state.set_state(CreateRequest.amount)
     await callback.answer()
 
 
-@fsm_router.callback_query(F.data.startswith("amount_"), CreateRequest.main_amount)
-async def process_main_amount_button(callback: types.CallbackQuery, state: FSMContext):
-    amount = float(callback.data.split('_')[1])
-    await state.update_data(main_amount=amount)
+@constructor_router.callback_query(F.data.startswith("amount_"), CreateRequest.amount)
+async def process_amount(callback: types.CallbackQuery, state: FSMContext):
+    amount = format_number(callback.data.split('_')[1])
     data = await state.get_data()
-    currency = data.get('main_currency')
-    op_type = data.get('operation_type')
-    formatted_amount = format_number(amount)
-    if op_type == 'buy':
-        question_text = f"В каком формате вы хотите получить {formatted_amount} {currency}?"
-    else:
-        question_text = f"В каком формате у вас {formatted_amount} {currency}?"
-    await callback.message.edit_text(f"Сумма: {formatted_amount}")
-    await callback.message.answer(question_text, reply_markup=get_money_type_kb())
-    await state.set_state(CreateRequest.main_money_type)
+    message_text = data.get("message_text")
+    message_text += amount
+
+    await state.update_data(amount=callback.data.split('_')[1])
+    await state.update_data(message_text=message_text)
+
+    await callback.message.edit_text(message_text, reply_markup=get_currency_from_kb())
+    await state.set_state(CreateRequest.currency_from)
     await callback.answer()
 
 
-@fsm_router.message(CreateRequest.main_amount)
-async def process_main_amount_manual(message: types.Message, state: FSMContext):
+@constructor_router.message(CreateRequest.amount)
+async def process_amount_manual(message: types.Message, state: FSMContext):
     if not message.text.replace('.', '', 1).isdigit():
         return await message.answer("Пожалуйста, введите сумму только цифрами.")
 
+    data = await state.get_data()
     amount = float(message.text)
-    await state.update_data(main_amount=amount)
+    amount = format_number(amount)
+    message_text = data.get("message_text")
+    message_text += amount
+
+    await state.update_data(amount=float(message.text))
+    await state.update_data(message_text=message_text)
+
+    await message.answer(message_text, reply_markup=get_currency_from_kb())
+    await state.set_state(CreateRequest.currency_from)
+
+
+@constructor_router.callback_query(F.data.startswith("currency_from_"), CreateRequest.currency_from)
+async def process_currency_from(callback: types.CallbackQuery, state: FSMContext):
+    currency_code = callback.data.split('_')[-1]
     data = await state.get_data()
-    currency = data.get('main_currency')
-    op_type = data.get('operation_type')
-    formatted_amount = format_number(amount)
-    if op_type == 'buy':
-        question_text = f"В каком формате вы хотите получить {formatted_amount} {currency}?"
+
+    message_text_prefix = data.get("request_type_value")
+    amount_formatted = format_number(data.get("amount"))
+    symbol = CURRENCY_SYMBOLS.get(currency_code, currency_code)
+    currency_from_value = [
+        btn.text
+        for row in callback.message.reply_markup.inline_keyboard
+        for btn in row
+        if btn.callback_data == callback.data
+    ][0]
+    currency_from_value = currency_from_value.replace(".", "")
+    if currency_code == 'USD':
+        new_message_text = f"{message_text_prefix}{symbol}{amount_formatted}"
+    elif currency_code == 'RUB':
+        new_message_text = f"{message_text_prefix}{amount_formatted}{symbol}"
     else:
-        question_text = f"В каком формате у вас {formatted_amount} {currency}?"
-    await message.answer(question_text, reply_markup=get_money_type_kb())
-    await state.set_state(CreateRequest.main_money_type)
+        new_message_text = f"{message_text_prefix}{amount_formatted} {symbol}"
 
+    await state.update_data(currency_from_value=currency_from_value)
+    await state.update_data(currency_from_key=callback.data.split('_')[-1])
+    await state.update_data(message_text=new_message_text)
 
-@fsm_router.callback_query(F.data.startswith("type_"), CreateRequest.main_money_type)
-async def process_main_type(callback: types.CallbackQuery, state: FSMContext):
-    m_type = callback.data.split('_')[1]
-    await state.update_data(main_money_type=m_type)
-
-    data = await state.get_data()
-    currency = data.get('main_currency')
-    op_type = data.get('operation_type')
-    formatted_amount = format_number(data.get('main_amount'))
-
-    if op_type == 'buy':
-        question_text = f"В каком городе вам нужны {formatted_amount} {currency}?"
-    elif op_type == 'sell':
-        question_text = f"В каком городе находятся ваши {formatted_amount} {currency}?"
-    else:
-        question_text = f"Из какого города вы отправляете {formatted_amount} {currency}?"
-
-    await callback.message.edit_text(f"Тип денег: {MONEY_TYPES.get(m_type)}")
-    await callback.message.answer(question_text, reply_markup=get_location_kb())
-    await state.set_state(CreateRequest.main_location)
+    await callback.message.edit_text(new_message_text, reply_markup=get_money_type_from_kb())
+    await state.set_state(CreateRequest.money_type_from)
     await callback.answer()
 
 
-# === ШАГ 4: ПЕРЕХОД К ВВОДУ ВТОРОЙ ЧАСТИ ЗАЯВКИ ===
-@fsm_router.callback_query(F.data.startswith("loc_"), CreateRequest.main_location)
-async def process_main_location(callback: types.CallbackQuery, state: FSMContext):
-    loc = callback.data.split('_')[1]
-    await state.update_data(main_location=loc)
+@constructor_router.callback_query(F.data.startswith("money_type_from_"), CreateRequest.money_type_from)
+async def process_money_type_from(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    message_text = data.get("message_text")
+    money_type_from_value = [
+        btn.text
+        for row in callback.message.reply_markup.inline_keyboard
+        for btn in row
+        if btn.callback_data == callback.data
+    ][0]
+    money_type_from_value = money_type_from_value.replace(".", "")
+    message_text = message_text + " " + money_type_from_value
 
-    full_desc = build_description(data, 'main')
-    await callback.message.edit_text(f"Детали: {full_desc}")
+    await state.update_data(money_type_from_key=callback.data.split('_')[-1])
+    await state.update_data(money_type_from_value=money_type_from_value)
+    await state.update_data(message_text=message_text)
 
-    op_type = data.get('operation_type')
-
-    if op_type == 'buy':
-        question_text = "Какую валюту вы отдаете взамен?"
-        await callback.message.answer(question_text,
-                                      reply_markup=get_currency_kb(exclude_currency=data.get('main_currency')))
-        await state.set_state(CreateRequest.secondary_currency)
-    elif op_type == 'sell':
-        question_text = "Какую валюту вы хотите получить взамен?"
-        await callback.message.answer(question_text,
-                                      reply_markup=get_currency_kb(exclude_currency=data.get('main_currency')))
-        await state.set_state(CreateRequest.secondary_currency)
-    else:
-        question_text = "В каком формате вы хотите получить валюту?"
-        await callback.message.answer(question_text, reply_markup=get_money_type_kb())
-        await state.set_state(CreateRequest.secondary_money_type)
-
+    await callback.message.edit_text(message_text, reply_markup=get_location_from_kb())
+    await state.set_state(CreateRequest.location_from)
     await callback.answer()
 
 
-# === ШАГ 5: ВВОД ДАННЫХ ВТОРИЧНОЙ ВАЛЮТЫ/ЛОКАЦИИ ===
-@fsm_router.callback_query(F.data.startswith("cur_"), CreateRequest.secondary_currency)
-async def process_sec_currency(callback: types.CallbackQuery, state: FSMContext):
-    secondary_curr = callback.data.split('_')[1]
-    await state.update_data(secondary_currency=secondary_curr)
-
+@constructor_router.callback_query(F.data.startswith("location_"), CreateRequest.location_from)
+async def process_location_from(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    op_type = data.get('operation_type')
+    message_text = data.get("message_text")
+    main_location_value = [
+        btn.text
+        for row in callback.message.reply_markup.inline_keyboard
+        for btn in row
+        if btn.callback_data == callback.data
+    ][0]
+    request_type = data.get("request_type_key")
+    main_location_value = main_location_value.replace(".", "")
 
-    if op_type == 'buy':
-        question_text = f"В каком формате вы отдадите {secondary_curr}?"
-    else:
-        question_text = f"В каком формате вы хотите получить {secondary_curr}?"
+    if request_type == "take":
+        message_text = message_text + " " + main_location_value
+    elif request_type == "give":
+        message_text = message_text + " " + main_location_value
 
-    await callback.message.edit_text(f"Вторая валюта: {secondary_curr}")
-    await callback.message.answer(question_text, reply_markup=get_money_type_kb())
-    await state.set_state(CreateRequest.secondary_money_type)
+    await state.update_data(location_from_key=callback.data.split('_')[-1])
+    await state.update_data(location_from_value=main_location_value)
+    await state.update_data(message_text=message_text)
+
+    if request_type == "take":
+        await callback.message.edit_text(message_text, reply_markup=get_money_type_take_to_kb())
+        await state.set_state(CreateRequest.money_type_to)
+        await callback.answer()
+    elif request_type == "give":
+        await callback.message.edit_text(message_text, reply_markup=get_money_type_give_to_kb())
+        await state.set_state(CreateRequest.money_type_to)
+        await callback.answer()
+
+
+@constructor_router.callback_query(F.data.startswith("money_type_to_"), CreateRequest.money_type_to)
+async def process_secondary_money_type(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    message_text = data.get("message_text")
+    money_type_to_value = [
+        btn.text
+        for row in callback.message.reply_markup.inline_keyboard
+        for btn in row
+        if btn.callback_data == callback.data
+    ][0]
+
+    money_type_to_value = money_type_to_value.replace(".", "")
+    message_text = message_text + " " + money_type_to_value
+
+    await state.update_data(money_type_to_key=callback.data.split('_')[-1])
+    await state.update_data(money_type_to_value=money_type_to_value)
+    await state.update_data(message_text=message_text)
+
+    await callback.message.edit_text(message_text, reply_markup=get_currency_to_kb())
+    await state.set_state(CreateRequest.currency_to)
     await callback.answer()
 
 
-@fsm_router.callback_query(F.data.startswith("type_"), CreateRequest.secondary_money_type)
-async def process_sec_type(callback: types.CallbackQuery, state: FSMContext):
-    secondary_m_type_key = callback.data.split('_')[1]
-    await state.update_data(secondary_money_type=secondary_m_type_key)
-
+@constructor_router.callback_query(F.data.startswith("currency_to_"), CreateRequest.currency_to)
+async def process_currency_to(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    op_type = data.get('operation_type')
+    message_text = data.get("message_text")
+    currency_to_value = [
+        btn.text
+        for row in callback.message.reply_markup.inline_keyboard
+        for btn in row
+        if btn.callback_data == callback.data
+    ][0]
+    currency_to_value = currency_to_value.replace(".", "")
+    message_text = message_text + " " + currency_to_value
 
-    secondary_m_type_text = MONEY_TYPES.get(secondary_m_type_key)
+    await state.update_data(currency_to_key=callback.data.split('_')[-1])
+    await state.update_data(currency_to_value=currency_to_value)
+    await state.update_data(message_text=message_text)
 
-    if op_type in ['buy', 'sell']:
-        currency_for_question = data.get('secondary_currency')
-    else:
-        currency_for_question = data.get('main_currency')
-
-    if op_type == 'buy':
-        question_text = f"Из какого города вы отдаете {currency_for_question} ({secondary_m_type_text})?"
-    elif op_type == 'sell':
-        question_text = f"В каком городе вы хотите получить {currency_for_question} ({secondary_m_type_text})?"
-    else:
-        question_text = f"В каком городе вы хотите получить {currency_for_question} ({secondary_m_type_text})?"
-
-    await callback.message.edit_text(f"Тип денег: {secondary_m_type_text}")
-    await callback.message.answer(question_text, reply_markup=get_location_kb())
-    await state.set_state(CreateRequest.secondary_location)
+    await callback.message.edit_text(message_text, reply_markup=get_location_to_kb())
+    await state.set_state(CreateRequest.location_to)
     await callback.answer()
 
 
-# === ШАГ 6: КОММЕНТАРИЙ И ПРЕДПРОСМОТР ===
-@fsm_router.callback_query(F.data.startswith("loc_"), CreateRequest.secondary_location)
-async def process_sec_location_and_ask_comment(callback: types.CallbackQuery, state: FSMContext):
-    loc = callback.data.split('_')[1]
-    await state.update_data(secondary_location=loc)
+@constructor_router.callback_query(F.data.startswith("location_"), CreateRequest.location_to)
+async def process_location_to(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    message_text = data.get("message_text")
+    location_to_value = [
+        btn.text
+        for row in callback.message.reply_markup.inline_keyboard
+        for btn in row
+        if btn.callback_data == callback.data
+    ][0]
+    location_to_value = location_to_value.replace(".", "")
 
-    if data.get('operation_type') == 'transfer':
-        data['secondary_currency'] = data['main_currency']
-        await state.update_data(secondary_currency=data['main_currency'])
+    message_text = message_text + " " + location_to_value
 
-    full_desc = build_description(data, 'secondary')
-    await callback.message.edit_text(f"Детали: {full_desc}")
+    await state.update_data(location_to_key=callback.data.split('_')[-1])
+    await state.update_data(location_to_value=location_to_value)
+    await state.update_data(message_text=message_text)
 
-    await callback.message.answer(
-        "Добавьте комментарий или нажмите 'Пропустить'",
-        reply_markup=get_skip_comment_kb())
+    await callback.message.edit_text(
+        f"<b>{message_text}</b>",
+        reply_markup=get_confirm_kb(),
+        parse_mode="HTML")
 
+    await state.set_state(CreateRequest.confirm)
+    await callback.answer()
+
+
+@constructor_router.callback_query(F.data == "req_add_comment", CreateRequest.confirm)
+async def process_add_comment(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
+        f"Отправьте текст комментария...",
+        parse_mode="HTML")
     await state.set_state(CreateRequest.comment)
-    await callback.answer()
 
 
-@fsm_router.message(CreateRequest.comment)
-async def process_comment_and_show_preview(message: types.Message, state: FSMContext):
-    await state.update_data(comment=message.text if message.text != '-' else None)
+@constructor_router.message(CreateRequest.comment)
+async def process_comment(message: types.Message, state: FSMContext):
     data = await state.get_data()
+    message_text = data.get("message_text")
+    comment = message.text
 
-    amount = data.get('main_amount')
-    formatted_amount = format_number(amount)
-    op_type = data.get('operation_type')
+    await state.update_data(comment=comment)
+    await state.update_data(message_text=message_text)
 
-    # Собираем описания
-    main_desc = build_description(data, 'main')
-
-    # Для перевода нам нужно заранее подставить валюту, т.к. ее не выбирали
-    if op_type == 'transfer':
-        data['secondary_currency'] = data['main_currency']
-
-    secondary_desc = build_description(data, 'secondary')
-
-    # Четко определяем final_from, final_to и текст для превью
-    if op_type == 'buy':
-        final_from = secondary_desc
-        final_to = main_desc
-        line1 = f"<b>Хочу купить:</b> <code>{formatted_amount} {final_to}</code>"
-        line2 = f"<b>В обмен на:</b> <code>{final_from}</code>"
-    elif op_type == 'sell':
-        final_from = main_desc
-        final_to = secondary_desc
-        line1 = f"<b>Продаю:</b> <code>{formatted_amount} {final_from}</code>"
-        line2 = f"<b>Хочу получить:</b> <code>{final_to}</code>"
-    else:  # op_type == 'transfer'
-        final_from = main_desc
-        final_to = secondary_desc
-        line1 = f"<b>Отправляю:</b> <code>{formatted_amount} {final_from}</code>"
-        line2 = f"<b>Получаю:</b> <code>{formatted_amount} {final_to}</code>"
-
-    # Сохраняем финальные данные для следующего шага
-    await state.update_data(final_from=final_from, final_to=final_to, final_amount=amount)
-
-    text = f"<b>Проверьте вашу заявку:</b>\n\n{line1}\n{line2}\n\n<b>Комментарий:</b> {data['comment'] or 'Нет'}"
-    await message.answer(text, parse_mode="HTML", reply_markup=get_confirm_kb())
+    await message.answer(
+        f"<b>Проверьте вашу заявку:</b>\n\n<b>{message_text}\nКомментарий:</b> {comment}",
+        parse_mode="HTML",
+        reply_markup=get_confirm_kb())
     await state.set_state(CreateRequest.confirm)
 
 
-# === ШАГ 7: ПОДТВЕРЖДЕНИЕ И ПУБЛИКАЦИЯ ===
-@fsm_router.callback_query(F.data == "req_confirm", CreateRequest.confirm)
+@constructor_router.callback_query(F.data == "req_cancel", CreateRequest.confirm)
+async def process_cancel(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_text("Действие отменено.")
+    await callback.answer()
+
+
+@constructor_router.callback_query(F.data == "req_confirm", CreateRequest.confirm)
 async def process_final_confirm(callback: types.CallbackQuery, state: FSMContext, bot: Bot):
     data = await state.get_data()
-    user = callback.from_user
-    op_type = data.get('operation_type')
 
-    flow_type_for_db = 'TRANSFER' if op_type == 'transfer' else 'EXCHANGE'
+    user = callback.from_user
+    message_text = data.get("message_text")
 
     async with async_session_factory() as session:
         new_request = Request(
             user_id=user.id,
-            request_type=flow_type_for_db,
-            operation_type=data.get('operation_type'),
-            currency_from=data['final_from'],
-            amount_from=data['final_amount'],
-            currency_to=data['final_to'],
-            comment=data.get('comment'))
+            request_type=data.get("request_type_key"),
+            currency_from=data.get("currency_from_key"),
+            money_type_from=data.get("money_type_from_key"),
+            location_from=data.get("location_from_key"),
+            amount=data.get("amount"),
+            currency_to=data.get("currency_to_key"),
+            money_type_to=data.get("money_type_to_key"),
+            location_to=data.get("location_to_key"),
+            comment=data.get('comment'),
+            message_text=data.get("message_text"))
         session.add(new_request)
         await session.commit()
         request_id = new_request.id
 
     author_mention = f"@{user.username}" if user.username else user.first_name
-    comment_text = f"\n<b>Комментарий:</b> {data['comment']}" if data.get('comment') else ""
-    formatted_amount = format_number(data['final_amount'])
-
-    if op_type in ['buy', 'sell']:
-        flow_name_for_msg = "обмен валюты"
-        action = "купить" if op_type == 'buy' else "продать"
-
-        if op_type == 'buy':
-            action_text = f"{action} <b>{formatted_amount} {data['final_to']}</b> в обмен на <b>{data['final_from']}</b>"
-        else:  # sell
-            action_text = f"{action} <b>{formatted_amount} {data['final_from']}</b> в обмен на <b>{data['final_to']}</b>"
-
-    else:  # transfer
-        flow_name_for_msg = "перевод денег"
-        from_desc_short = build_description(data, 'main', include_currency=False)
-        to_desc_short = build_description(data, 'secondary', include_currency=False)
-        action_text = f"перевести <b>{formatted_amount} {data['main_currency']}</b> из <i>{from_desc_short}</i> в <i>{to_desc_short}</i>"
-
-    # --- КОНЕЦ ИСПРАВЛЕНИЙ ---
 
     group_text = (
-        f"<b>Новая заявка на {flow_name_for_msg}</b>\n\n"
-        f"👤 {author_mention} хочет {action_text}.{comment_text}")
+        f"<b>Новая заявка от:</b> 👤 {author_mention}\n\n"
+        f"{message_text}")
 
     try:
         sent_message = await bot.send_message(chat_id=GROUP_ID, text=group_text, parse_mode="HTML")
@@ -342,48 +321,6 @@ async def process_final_confirm(callback: types.CallbackQuery, state: FSMContext
     except Exception as e:
         print(f"Error sending to group: {e}")
 
-    await callback.message.edit_text("✅ Ваша заявка успешно создана и опубликована!")
+    await callback.message.edit_text(f"{message_text}\n\n✅ Ваша заявка успешно создана и опубликована!")
     await state.clear()
-    await callback.answer()
-
-
-@fsm_router.callback_query(F.data == "req_cancel", CreateRequest.confirm)
-async def process_cancel(callback: types.CallbackQuery, state: FSMContext):
-    await state.clear()
-    await callback.message.edit_text("Действие отменено.")
-    await callback.answer()
-
-
-@fsm_router.callback_query(F.data == "skip_comment", CreateRequest.comment)
-async def process_skip_comment(callback: types.CallbackQuery, state: FSMContext):
-    await state.update_data(comment=None)
-
-    await callback.message.delete()
-
-    data = await state.get_data()
-    amount = data.get('main_amount')
-    formatted_amount = format_number(amount)
-    op_type = data.get('operation_type')
-    main_desc = build_description(data, 'main')
-    secondary_desc = build_description(data, 'secondary')
-
-    if op_type == 'buy':
-        final_from, final_to = secondary_desc, main_desc
-        line1 = f"<b>Хочу купить:</b> <code>{formatted_amount} {final_to}</code>"
-        line2 = f"<b>В обмен на:</b> <code>{final_from}</code>"
-    elif op_type == 'sell':
-        final_from, final_to = main_desc, secondary_desc
-        line1 = f"<b>Продаю:</b> <code>{formatted_amount} {final_from}</code>"
-        line2 = f"<b>Хочу получить:</b> <code>{final_to}</code>"
-    else:
-        final_from = main_desc
-        final_to = secondary_desc
-        line1 = f"<b>Отправляю:</b> <code>{formatted_amount} {final_from}</code>"
-        line2 = f"<b>Получаю:</b> <code>{formatted_amount} {final_to}</code>"
-
-    await state.update_data(final_from=final_from, final_to=final_to, final_amount=amount)
-
-    text = f"<b>Проверьте вашу заявку:</b>\n\n{line1}\n{line2}\n\n<b>Комментарий:</b> Нет"
-    await callback.message.answer(text, parse_mode="HTML", reply_markup=get_confirm_kb())
-    await state.set_state(CreateRequest.confirm)
     await callback.answer()

@@ -1,5 +1,3 @@
-# handlers/admin_handlers.py (ПОЛНАЯ ЗАМЕНА)
-
 import asyncio
 from aiogram import Router, F, types, Bot
 from aiogram.filters import Command
@@ -14,10 +12,6 @@ from keyboards.inline import get_confirm_kb
 
 admin_router = Router()
 
-# --- FSM для создания рассылки ---
-
-# Шаг 1: Запускаем FSM
-# Добавляем фильтр прямо в декоратор
 @admin_router.message(Command("send_update"), F.from_user.id == ADMIN_ID)
 async def start_broadcast(message: types.Message, state: FSMContext):
     await state.clear()

@@ -2,20 +2,19 @@ from aiogram.fsm.state import State, StatesGroup
 
 
 class CreateRequest(StatesGroup):
-    operation_type = State()
+    request_type = State()
 
-    main_currency = State()
-    main_amount = State()
-    main_money_type = State()
-    main_location = State()
+    amount = State()
+    currency_from = State()
+    money_type_from = State()
+    location_from = State()
 
-    secondary_currency = State()
-    secondary_money_type = State()
-    secondary_location = State()
+    money_type_to = State()
+    currency_to = State()
+    location_to = State()
 
     comment = State()
     confirm = State()
-
 
 class CurrencyConverter(StatesGroup):
     from_currency = State()
