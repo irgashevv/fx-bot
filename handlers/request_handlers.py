@@ -311,6 +311,9 @@ async def process_final_confirm(callback: types.CallbackQuery, state: FSMContext
         f"<b>Новая заявка от:</b> 👤 {author_mention}\n\n"
         f"{message_text}")
 
+    if data.get('comment'):
+        group_text += f"\n<i>Комментарий: {data.get('comment')}</i>"
+
     try:
         sent_message = await bot.send_message(chat_id=GROUP_ID, text=group_text, parse_mode="HTML")
         async with async_session_factory() as session:
