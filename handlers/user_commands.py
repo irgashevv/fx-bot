@@ -38,7 +38,8 @@ async def list_active_requests(message: types.Message):
             select(Request)
             .where(Request.status == 'ACTIVE')
             .options(selectinload(Request.user))
-            .order_by(Request.created_at.desc()))
+            .order_by(Request.created_at.asc())
+        )
         result = await session.execute(query)
         requests = result.scalars().all()
 
@@ -50,7 +51,15 @@ async def list_active_requests(message: types.Message):
     for req in requests:
         author_mention = f"@{req.user.username}" if req.user.username else req.user.first_name
 
+        # Собираем основной текст
         line = f"— {author_mention} {req.message_text}."
+
+        # --- ТАКАЯ ЖЕ КРАСИВАЯ ЛОГИКА ---
+        if req.group_message_id and GROUP_ID:
+            chat_id_for_link = str(GROUP_ID).replace("-100", "")
+            link = f"https://t.me/c/{chat_id_for_link}/{req.group_message_id}"
+            line += f' <a href="{link}">*тык*</a>'
+        # --- КОНЕЦ ЛОГИКИ ---
 
         if req.comment:
             line += f"\n<i>Комментарий: {req.comment}</i>"
@@ -58,7 +67,7 @@ async def list_active_requests(message: types.Message):
         text_parts.append(line)
 
     text = "\n\n".join(text_parts)
-    await message.answer(text, parse_mode="HTML")
+    await message.answer(text, parse_mode="HTML", disable_web_page_preview=True)
 
 
 @router.message(F.text == "📋 Актуальные заявки")
