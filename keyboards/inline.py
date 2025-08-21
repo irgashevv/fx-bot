@@ -108,12 +108,28 @@ def get_money_type_give_to_kb(back_to_state: str = None):
     return builder.as_markup()
 
 
+def get_show_matches_kb(back_to_state: str = None):
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="✅ Да", callback_data="proceed_to_confirm"))
+
+    builder.add(InlineKeyboardButton(text="❌ Нет", callback_data="req_cancel"))
+    if back_to_state:
+        builder.row(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"back_to_{back_to_state}"))
+    return builder.as_markup()
+
+
 def get_confirm_kb(back_to_state: str = None):
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="✅ Подтвердить", callback_data="req_confirm"))
     builder.row(InlineKeyboardButton(text="💬 Добавить комментарий", callback_data="req_add_comment"))
     builder.add(InlineKeyboardButton(text="❌ Отменить", callback_data="req_cancel"))
 
+    add_back_button(builder, back_to_state)
+    return builder.as_markup()
+
+
+def get_comment_kb(back_to_state: str = None):
+    builder = InlineKeyboardBuilder()
     add_back_button(builder, back_to_state)
     return builder.as_markup()
 
