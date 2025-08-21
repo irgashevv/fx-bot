@@ -37,25 +37,24 @@ def build_text_from_state(data: dict) -> str:
     parts = []
     prefix = data.get("request_type_value", "")
     amount_str = format_number(data.get("amount", 0))
-
     if prefix and amount_str != "0":
         parts.append(f"{prefix}{amount_str}")
     else:
         return ""
-
     if data.get("currency_from_key"):
         currency_code = data.get("currency_from_key")
         symbol = CURRENCY_SYMBOLS.get(currency_code, "")
-        if currency_code == 'USD': parts[0] = f"{prefix}{symbol}{amount_str}"
-        elif currency_code == 'RUB': parts[0] = f"{prefix}{amount_str}{symbol}"
-        else: parts[0] = f"{prefix}{amount_str} {symbol}"
-
+        if currency_code == 'USD':
+            parts[0] = f"{prefix}{symbol}{amount_str}"
+        elif currency_code == 'RUB':
+            parts[0] = f"{prefix}{amount_str}{symbol}"
+        else:
+            parts[0] = f"{prefix}{amount_str} {symbol}"
     if data.get("money_type_from_value"): parts.append(data.get("money_type_from_value"))
     if data.get("location_from_value"): parts.append(data.get("location_from_value"))
     if data.get("money_type_to_value"): parts.append(data.get("money_type_to_value"))
     if data.get("currency_to_value"): parts.append(data.get("currency_to_value"))
     if data.get("location_to_value"): parts.append(data.get("location_to_value"))
-
     return " ".join(parts)
 
 
@@ -65,8 +64,7 @@ async def find_matching_requests(state: FSMContext, user_id: int):
     opposite_type = "give" if current_type == "take" else "take"
     async with async_session_factory() as session:
         query = (
-            select(Request)
-            .where(
+            select(Request).where(
                 Request.status == 'ACTIVE',
                 Request.user_id != user_id,
                 Request.request_type == opposite_type,
@@ -76,39 +74,41 @@ async def find_matching_requests(state: FSMContext, user_id: int):
                 Request.location_to == data.get("location_to_key"),
                 Request.money_type_from == data.get("money_type_from_key"),
                 Request.money_type_to == data.get("money_type_to_key"),
-            )
-            .options(selectinload(Request.user))
-            .order_by(Request.created_at.desc())
+            ).options(selectinload(Request.user)).order_by(Request.created_at.desc())
         )
         result = await session.execute(query)
-        matches = result.scalars().all()
-        return matches
+        return result.scalars().all()
 
 
 async def show_request_type_step(message: types.Message, state: FSMContext, edit=False):
     text = "Выберите необходимое действие:"
     kb = inline.get_request_type_kb()
-    if edit:
-        await message.edit_text(text, reply_markup=kb)
-    else:
-        await state.clear()
-        sent_message = await message.answer(text, reply_markup=kb)
-        await state.update_data(editor_message_id=sent_message.message_id)
+    try:
+        if edit:
+            await message.edit_text(text, reply_markup=kb)
+        else:
+            await state.clear()
+            sent_message = await message.answer(text, reply_markup=kb)
+            await state.update_data(editor_message_id=sent_message.message_id)
+    except TelegramBadRequest:
+        pass
     await state.set_state(CreateRequest.request_type)
 
 
 async def show_amount_step(message: types.Message, state: FSMContext, user_id: int):
     async with async_session_factory() as session:
         subquery = select(Request.amount, func.max(Request.id).label('max_id')).where(
-            Request.user_id == user_id).group_by(
-            Request.amount).alias('subquery')
+            Request.user_id == user_id).group_by(Request.amount).alias('subquery')
         query = select(subquery.c.amount).order_by(desc(subquery.c.max_id)).limit(4)
         result = await session.execute(query)
         amounts = [int(a) for a in result.scalars().all()]
     if not amounts: amounts = [100, 500, 1000, 5000]
     text = "Введите сумму или выберите из популярных вариантов:"
     kb = inline.get_amount_kb(amounts, back_to_state=CreateRequest.request_type.state)
-    await message.edit_text(text, reply_markup=kb)
+    try:
+        await message.edit_text(text, reply_markup=kb)
+    except TelegramBadRequest:
+        pass
     await state.set_state(CreateRequest.amount)
 
 
@@ -116,7 +116,10 @@ async def show_currency_from_step(message: types.Message, state: FSMContext):
     data = await state.get_data()
     text = build_text_from_state(data)
     kb = inline.get_currency_from_kb(back_to_state=CreateRequest.amount.state)
-    await message.edit_text(text, reply_markup=kb)
+    try:
+        await message.edit_text(text, reply_markup=kb)
+    except TelegramBadRequest:
+        pass
     await state.set_state(CreateRequest.currency_from)
 
 
@@ -124,7 +127,10 @@ async def show_money_type_from_step(message: types.Message, state: FSMContext):
     data = await state.get_data()
     text = build_text_from_state(data)
     kb = inline.get_money_type_from_kb(back_to_state=CreateRequest.currency_from.state)
-    await message.edit_text(text, reply_markup=kb)
+    try:
+        await message.edit_text(text, reply_markup=kb)
+    except TelegramBadRequest:
+        pass
     await state.set_state(CreateRequest.money_type_from)
 
 
@@ -132,7 +138,10 @@ async def show_location_from_step(message: types.Message, state: FSMContext):
     data = await state.get_data()
     text = build_text_from_state(data)
     kb = inline.get_location_from_kb(back_to_state=CreateRequest.money_type_from.state)
-    await message.edit_text(text, reply_markup=kb)
+    try:
+        await message.edit_text(text, reply_markup=kb)
+    except TelegramBadRequest:
+        pass
     await state.set_state(CreateRequest.location_from)
 
 
@@ -140,11 +149,13 @@ async def show_money_type_to_step(message: types.Message, state: FSMContext):
     data = await state.get_data()
     text = build_text_from_state(data)
     request_type = data.get("request_type_key")
-    if request_type == "take":
-        kb = inline.get_money_type_take_to_kb(back_to_state=CreateRequest.location_from.state)
-    else:
-        kb = inline.get_money_type_give_to_kb(back_to_state=CreateRequest.location_from.state)
-    await message.edit_text(text, reply_markup=kb)
+    kb = inline.get_money_type_take_to_kb(
+        back_to_state=CreateRequest.location_from.state) if request_type == "take" else inline.get_money_type_give_to_kb(
+        back_to_state=CreateRequest.location_from.state)
+    try:
+        await message.edit_text(text, reply_markup=kb)
+    except TelegramBadRequest:
+        pass
     await state.set_state(CreateRequest.money_type_to)
 
 
@@ -152,7 +163,10 @@ async def show_currency_to_step(message: types.Message, state: FSMContext):
     data = await state.get_data()
     text = build_text_from_state(data)
     kb = inline.get_currency_to_kb(back_to_state=CreateRequest.money_type_to.state)
-    await message.edit_text(text, reply_markup=kb)
+    try:
+        await message.edit_text(text, reply_markup=kb)
+    except TelegramBadRequest:
+        pass
     await state.set_state(CreateRequest.currency_to)
 
 
@@ -160,45 +174,35 @@ async def show_location_to_step(message: types.Message, state: FSMContext):
     data = await state.get_data()
     text = build_text_from_state(data)
     kb = inline.get_location_to_kb(back_to_state=CreateRequest.currency_to.state)
-    await message.edit_text(text, reply_markup=kb)
+    try:
+        await message.edit_text(text, reply_markup=kb)
+    except TelegramBadRequest:
+        pass
     await state.set_state(CreateRequest.location_to)
 
 
 async def show_matches_step(message: types.Message, state: FSMContext, user_id: int, username: str, first_name: str):
     matches = await find_matching_requests(state, user_id=user_id)
-
-    # Если совпадений нет, просто идем дальше
     if not matches:
         await show_confirm_step(message, state)
         return
-
-    # --- ЛОГИКА ПОСТРОЕНИЯ НОВОГО ТЕКСТА ---
     text_parts = ["*Мы нашли для вас подходящие заявки:*"]
-
     for req in matches:
         author = f"@{req.user.username}" if req.user.username else req.user.first_name
         safe_author = author.replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`")
         safe_message = req.message_text.replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`")
-        line = f"— *{safe_author}*: {safe_message}"
-        text_parts.append(line)
-
+        text_parts.append(f"— *{safe_author}*: {safe_message}")
     text_parts.append("\n*Ваша заявка:*")
-
     data = await state.get_data()
     my_request_text = build_text_from_state(data)
     my_author = f"@{username}" if username else first_name
-
     safe_my_author = my_author.replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`", "\\`")
     safe_my_request_text = my_request_text.replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("`",
                                                                                                                "\\`")
-    my_line = f"— *{safe_my_author}*: {safe_my_request_text}"
-    text_parts.append(my_line)
-
+    text_parts.append(f"— *{safe_my_author}*: {safe_my_request_text}")
     text_parts.append("\nВсе равно создать заявку?")
-
     final_text = "\n\n".join(text_parts)
     kb = inline.get_show_matches_kb(back_to_state=CreateRequest.location_to.state)
-
     try:
         await message.edit_text(final_text, reply_markup=kb, parse_mode="MarkdownV2")
     except TelegramBadRequest:
@@ -212,15 +216,12 @@ async def show_confirm_step(message: types.Message, state: FSMContext):
     await state.update_data(final_message_text=message_text)
     comment = data.get("comment")
     final_text_for_user = f"<b>Проверьте вашу заявку:</b>\n\n<b>{message_text}</b>"
-    if comment:
-        final_text_for_user += f"\n<b>Комментарий:</b> {comment}"
-    kb = inline.get_confirm_kb(back_to_state=CreateRequest.show_matches.state)
-
+    if comment: final_text_for_user += f"\n<b>Комментарий:</b> {comment}"
+    kb = inline.get_confirm_kb(back_to_state=CreateRequest.location_to.state)
     try:
         await message.edit_text(final_text_for_user, reply_markup=kb, parse_mode="HTML")
     except TelegramBadRequest:
         pass
-
     await state.set_state(CreateRequest.confirm)
 
 
@@ -228,6 +229,19 @@ async def show_confirm_step(message: types.Message, state: FSMContext):
 async def process_back_button(callback: types.CallbackQuery, state: FSMContext):
     target_state_name = callback.data.split('_', 2)[-1]
     data = await state.get_data()
+
+    if target_state_name == CreateRequest.location_from.state:
+        money_type = data.get("money_type_from_key")
+        currency = data.get("currency_from_key")
+        if money_type == 'online' and currency in ['TJS', 'UZS', 'RUB']:
+            target_state_name = CreateRequest.money_type_from.state
+
+    if target_state_name == CreateRequest.location_to.state:
+        money_type = data.get("money_type_to_key")
+        currency = data.get("currency_to_key")
+        if money_type == 'online' and currency in ['TJS', 'UZS', 'RUB']:
+            target_state_name = CreateRequest.currency_to.state
+
     try:
         target_state_object = next(s for s in ORDERED_STATES if s.state == target_state_name)
         target_index = ORDERED_STATES.index(target_state_object)
@@ -235,15 +249,10 @@ async def process_back_button(callback: types.CallbackQuery, state: FSMContext):
         await callback.answer("Ошибка навигации.", show_alert=True)
         return
 
-    keys_to_delete = set()
-    for i in range(target_index, len(ORDERED_STATES)):
-        state_to_clear = ORDERED_STATES[i]
-        keys_to_delete.update(STEPS_KEYS.get(state_to_clear, []))
-
+    keys_to_delete = {key for i in range(target_index, len(ORDERED_STATES)) for key in
+                      STEPS_KEYS.get(ORDERED_STATES[i], [])}
     for key in keys_to_delete:
-        if key in data:
-            del data[key]
-
+        if key in data: del data[key]
     await state.set_data(data)
 
     state_map = {
@@ -255,19 +264,17 @@ async def process_back_button(callback: types.CallbackQuery, state: FSMContext):
         CreateRequest.money_type_to.state: (show_money_type_to_step, {}),
         CreateRequest.currency_to.state: (show_currency_to_step, {}),
         CreateRequest.location_to.state: (show_location_to_step, {}),
-        CreateRequest.show_matches.state: (show_matches_step, {
-            'user_id': callback.from_user.id,
-            'username': callback.from_user.username,
-            'first_name': callback.from_user.first_name
-        }),
+        CreateRequest.show_matches.state: (show_matches_step,
+                                           {'user_id': callback.from_user.id, 'username': callback.from_user.username,
+                                            'first_name': callback.from_user.first_name}),
         CreateRequest.confirm.state: (show_confirm_step, {}),
     }
 
     show_function, kwargs = state_map.get(target_state_name, (None, None))
     if show_function:
-        if target_state_name == CreateRequest.request_type.state:
-            kwargs['edit'] = True
+        if target_state_name == CreateRequest.request_type.state: kwargs['edit'] = True
         await show_function(callback.message, state, **kwargs)
+
     await callback.answer()
 
 
@@ -287,8 +294,7 @@ async def process_request_type(callback: types.CallbackQuery, state: FSMContext)
 
 @router.callback_query(F.data.startswith("amount_"), CreateRequest.amount)
 async def process_amount_callback(callback: types.CallbackQuery, state: FSMContext):
-    amount = float(callback.data.split('_')[1])
-    await state.update_data(amount=amount)
+    await state.update_data(amount=float(callback.data.split('_')[1]))
     await show_currency_from_step(callback.message, state)
     await callback.answer()
 
@@ -299,8 +305,7 @@ async def process_amount_manual(message: types.Message, state: FSMContext):
         amount = float(message.text.replace(',', '.'))
         if amount <= 0: raise ValueError
     except ValueError:
-        await message.answer("Пожалуйста, введите корректное положительное число.")
-        return
+        return await message.answer("Пожалуйста, введите корректное положительное число.")
     await state.update_data(amount=amount)
     data = await state.get_data()
     editor_message_id = data.get('editor_message_id')
@@ -313,10 +318,9 @@ async def process_amount_manual(message: types.Message, state: FSMContext):
 @router.callback_query(F.data.startswith("currency_from_"), CreateRequest.currency_from)
 async def process_currency_from(callback: types.CallbackQuery, state: FSMContext):
     currency_code = callback.data.split('_')[-1]
-    currency_from_value = [
-        btn.text for row in callback.message.reply_markup.inline_keyboard for btn in row
-        if btn.callback_data == callback.data
-    ][0].replace("...", "")
+    currency_from_value = \
+        [b.text for r in callback.message.reply_markup.inline_keyboard for b in r if b.callback_data == callback.data][
+            0].replace("...", "")
     await state.update_data(currency_from_key=currency_code, currency_from_value=currency_from_value)
     await show_money_type_from_step(callback.message, state)
     await callback.answer()
@@ -324,79 +328,75 @@ async def process_currency_from(callback: types.CallbackQuery, state: FSMContext
 
 @router.callback_query(F.data.startswith("money_type_from_"), CreateRequest.money_type_from)
 async def process_money_type_from(callback: types.CallbackQuery, state: FSMContext):
-    money_type_from_value = [
-        btn.text for row in callback.message.reply_markup.inline_keyboard for btn in row
-        if btn.callback_data == callback.data
-    ][0].replace("...", "")
-    await state.update_data(
-        money_type_from_key=callback.data.split('_')[-1],
-        money_type_from_value=money_type_from_value,
-    )
-    await show_location_from_step(callback.message, state)
+    money_type_from_key = callback.data.split('_')[-1]
+    money_type_from_value = \
+        [b.text for r in callback.message.reply_markup.inline_keyboard for b in r if b.callback_data == callback.data][
+            0].replace("...", "")
+    await state.update_data(money_type_from_key=money_type_from_key, money_type_from_value=money_type_from_value)
+    data = await state.get_data()
+    currency_from = data.get("currency_from_key")
+    auto_location_map = {'TJS': ('dushanbe', 'в Душанбе'), 'UZS': ('tashkent', 'в Ташкенте'),
+                         'RUB': ('moscow', 'в Москве')}
+    if money_type_from_key == 'online' and currency_from in auto_location_map:
+        loc_key, loc_value = auto_location_map[currency_from]
+        await state.update_data(location_from_key=loc_key, location_from_value=loc_value)
+        await show_money_type_to_step(callback.message, state)
+    else:
+        await show_location_from_step(callback.message, state)
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("location_"), CreateRequest.location_from)
 async def process_location_from(callback: types.CallbackQuery, state: FSMContext):
-    location_value = [
-        btn.text for row in callback.message.reply_markup.inline_keyboard for btn in row
-        if btn.callback_data == callback.data
-    ][0].replace("...", "")
-    await state.update_data(
-        location_from_key=callback.data.split('_')[-1].replace("location_", ""),
-        location_from_value=location_value,
-    )
+    location_value = \
+        [b.text for r in callback.message.reply_markup.inline_keyboard for b in r if b.callback_data == callback.data][
+            0].replace("...", "")
+    await state.update_data(location_from_key=callback.data.split('_')[-1].replace("location_", ""),
+                            location_from_value=location_value)
     await show_money_type_to_step(callback.message, state)
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("money_type_to_"), CreateRequest.money_type_to)
 async def process_money_type_to(callback: types.CallbackQuery, state: FSMContext):
-    money_type_to_value = [
-        btn.text for row in callback.message.reply_markup.inline_keyboard for btn in row
-        if btn.callback_data == callback.data
-    ][0].replace("...", "")
-    await state.update_data(
-        money_type_to_key=callback.data.split('_')[-1],
-        money_type_to_value=money_type_to_value,
-    )
+    money_type_to_value = \
+        [b.text for r in callback.message.reply_markup.inline_keyboard for b in r if b.callback_data == callback.data][
+            0].replace("...", "")
+    await state.update_data(money_type_to_key=callback.data.split('_')[-1], money_type_to_value=money_type_to_value)
     await show_currency_to_step(callback.message, state)
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("currency_to_"), CreateRequest.currency_to)
 async def process_currency_to(callback: types.CallbackQuery, state: FSMContext):
-    currency_to_value = [
-        btn.text for row in callback.message.reply_markup.inline_keyboard for btn in row
-        if btn.callback_data == callback.data
-    ][0].replace("...", "")
-    await state.update_data(
-        currency_to_key=callback.data.split('_')[-1],
-        currency_to_value=currency_to_value,
-    )
-    await show_location_to_step(callback.message, state)
+    currency_to_key = callback.data.split('_')[-1]
+    currency_to_value = \
+        [b.text for r in callback.message.reply_markup.inline_keyboard for b in r if b.callback_data == callback.data][
+            0].replace("...", "")
+    await state.update_data(currency_to_key=currency_to_key, currency_to_value=currency_to_value)
+    data = await state.get_data()
+    money_type_to = data.get("money_type_to_key")
+    auto_location_map = {'TJS': ('dushanbe', 'в Душанбе'), 'UZS': ('tashkent', 'в Ташкенте'),
+                         'RUB': ('moscow', 'в Москве')}
+    if money_type_to == 'online' and currency_to_key in auto_location_map:
+        loc_key, loc_value = auto_location_map[currency_to_key]
+        await state.update_data(location_to_key=loc_key, location_to_value=loc_value)
+        await show_matches_step(callback.message, state, user_id=callback.from_user.id,
+                                username=callback.from_user.username, first_name=callback.from_user.first_name)
+    else:
+        await show_location_to_step(callback.message, state)
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("location_"), CreateRequest.location_to)
 async def process_location_to(callback: types.CallbackQuery, state: FSMContext):
-    location_to_value = [
-        btn.text for row in callback.message.reply_markup.inline_keyboard for btn in row
-        if btn.callback_data == callback.data
-    ][0].replace("...", "")
-
-    await state.update_data(
-        location_to_key=callback.data.split('_')[-1].replace("location_", ""),
-        location_to_value=location_to_value,
-    )
-
-    await show_matches_step(
-        callback.message,
-        state,
-        user_id=callback.from_user.id,
-        username=callback.from_user.username,
-        first_name=callback.from_user.first_name
-    )
+    location_to_value = \
+        [b.text for r in callback.message.reply_markup.inline_keyboard for b in r if b.callback_data == callback.data][
+            0].replace("...", "")
+    await state.update_data(location_to_key=callback.data.split('_')[-1].replace("location_", ""),
+                            location_to_value=location_to_value)
+    await show_matches_step(callback.message, state, user_id=callback.from_user.id,
+                            username=callback.from_user.username, first_name=callback.from_user.first_name)
     await callback.answer()
 
 
@@ -408,9 +408,11 @@ async def proceed_to_confirm(callback: types.CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "req_add_comment", CreateRequest.confirm)
 async def process_add_comment(callback: types.CallbackQuery, state: FSMContext):
-    await callback.message.edit_text(
-        f"Отправьте текст комментария...",
-        reply_markup=inline.get_comment_kb(back_to_state=CreateRequest.confirm.state))
+    try:
+        await callback.message.edit_text(f"Отправьте текст комментария...",
+                                         reply_markup=inline.get_comment_kb(back_to_state=CreateRequest.confirm.state))
+    except TelegramBadRequest:
+        pass
     await state.set_state(CreateRequest.comment)
     await callback.answer()
 
@@ -425,16 +427,17 @@ async def process_comment(message: types.Message, state: FSMContext, bot: Bot):
 
     if editor_message_id:
         message_text = build_text_from_state(data)
+        await state.update_data(final_message_text=message_text)
         comment = data.get("comment")
-        final_text = f"<b>Проверьте вашу заявку:</b>\n\n<b>{message_text}</b>"
+        final_text_for_user = f"<b>Проверьте вашу заявку:</b>\n\n<b>{message_text}</b>"
         if comment:
-            final_text += f"\n<b>Комментарий:</b> {comment}"
+            final_text_for_user += f"\n<b>Комментарий:</b> {comment}"
 
-        kb = inline.get_confirm_kb(back_to_state=CreateRequest.show_matches.state)
+        kb = inline.get_confirm_kb(back_to_state=CreateRequest.location_to.state)
 
         try:
             await bot.edit_message_text(
-                text=final_text,
+                text=final_text_for_user,
                 chat_id=message.chat.id,
                 message_id=editor_message_id,
                 reply_markup=kb,
@@ -445,10 +448,14 @@ async def process_comment(message: types.Message, state: FSMContext, bot: Bot):
     await state.set_state(CreateRequest.confirm)
 
 
-@router.callback_query(F.data == "req_cancel", StateFilter(CreateRequest.confirm, CreateRequest.comment, CreateRequest.show_matches))
+@router.callback_query(F.data == "req_cancel",
+                       StateFilter(CreateRequest.confirm, CreateRequest.comment, CreateRequest.show_matches))
 async def process_cancel(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.edit_text("Действие отменено.")
+    try:
+        await callback.message.edit_text("Действие отменено.")
+    except TelegramBadRequest:
+        pass
     await callback.answer()
 
 
@@ -488,6 +495,9 @@ async def process_final_confirm(callback: types.CallbackQuery, state: FSMContext
         await update_dashboard(bot)
     except Exception as e:
         print(f"Error sending to group: {e}")
-    await callback.message.edit_text(f"{message_text}\n\n✅ Ваша заявка успешно создана и опубликована!")
+    try:
+        await callback.message.edit_text(f"{message_text}\n\n✅ Ваша заявка успешно создана и опубликована!")
+    except TelegramBadRequest:
+        pass
     await state.clear()
     await callback.answer()
