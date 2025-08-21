@@ -17,7 +17,7 @@ async def main():
 
     dp.include_router(admin_handlers.admin_router)
     dp.include_router(user_commands.router)
-    dp.include_router(request_handlers.constructor_router)
+    dp.include_router(request_handlers.router)
     dp.include_router(converter_handlers.converter_router)
 
     print("Starting bot...")

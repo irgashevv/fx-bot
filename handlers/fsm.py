@@ -13,6 +13,7 @@ class CreateRequest(StatesGroup):
     currency_to = State()
     location_to = State()
 
+    show_matches = State()
     comment = State()
     confirm = State()
 
