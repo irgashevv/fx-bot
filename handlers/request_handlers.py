@@ -300,20 +300,36 @@ async def process_amount_callback(callback: types.CallbackQuery, state: FSMConte
 
 
 @router.message(CreateRequest.amount)
-async def process_amount_manual(message: types.Message, state: FSMContext):
+async def process_amount_manual(message: types.Message, state: FSMContext, bot: Bot):
     try:
         amount = float(message.text.replace(',', '.'))
         if amount <= 0: raise ValueError
     except ValueError:
-        return await message.answer("Пожалуйста, введите корректное положительное число.")
-    await state.update_data(amount=amount)
-    data = await state.get_data()
-    editor_message_id = data.get('editor_message_id')
-    if editor_message_id:
-        editor_message = types.Message(message_id=editor_message_id, chat=message.chat)
-        await show_currency_from_step(editor_message, state)
+        await message.answer("Пожалуйста, введите корректное положительное число.")
+        return
+
     await message.delete()
 
+    await state.update_data(amount=amount)
+
+    data = await state.get_data()
+    editor_message_id = data.get('editor_message_id')
+
+    if editor_message_id:
+        text = build_text_from_state(data)
+        kb = inline.get_currency_from_kb(back_to_state=CreateRequest.amount.state)
+
+        try:
+            await bot.edit_message_text(
+                text=text,
+                chat_id=message.chat.id,
+                message_id=editor_message_id,
+                reply_markup=kb
+            )
+        except TelegramBadRequest:
+            pass
+
+    await state.set_state(CreateRequest.currency_from)
 
 @router.callback_query(F.data.startswith("currency_from_"), CreateRequest.currency_from)
 async def process_currency_from(callback: types.CallbackQuery, state: FSMContext):
